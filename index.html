@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamics Simulation: Body on a Surface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configuración para que MathJax se renderice correctamente de forma dinámica
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        /* Estilos personalizados mínimos para barras de desplazamiento y lienzo */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        canvas { background-color: #f8fafc; }
+        .math-box { background: #f8fafc; padding: 0.75rem; border-radius: 0.5rem; border-left: 4px solid #3b82f6; margin-top: 0.5rem; margin-bottom: 0.5rem; }
+        
+        /* Estilos para el bloque de licencia y contador */
+        .licencia-bloque { margin-top: 15px; background: #f1f5f9; color: #475569; font-size: 11px; text-align: center; border-radius: 8px; padding: 10px; border: 1px solid #e2e8f0; }
+        .licencia-bloque a { color: #2563eb; text-decoration: none; font-weight: bold; }
+        .badge-container { margin-bottom: 8px; display: block; text-align: center; }
+        .badge-container img { margin: 0 auto; }
+    </style>
+</head>
+<body class="bg-gray-200 h-screen w-full flex overflow-hidden font-sans text-gray-800">
+
+    <!-- Panel Izquierdo: Datos Iniciales -->
+    <div class="w-52 bg-white shadow-lg p-3 flex flex-col z-10 shrink-0">
+        <h2 class="text-xl font-bold mb-4 text-blue-700 border-b pb-2">Initial Data</h2>
+        
+        <div class="flex-1 overflow-y-auto space-y-4 pr-2">
+            <div>
+                <label class="block text-sm font-semibold mb-1">Body mass (kg):</label>
+                <input type="number" id="inpMasa" value="10" min="0.1" step="0.1" class="w-full border rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold mb-1">Static Coeff. ($\mu_s$):</label>
+                <input type="number" id="inpMuS" value="0.5" min="0" max="1" step="0.05" onchange="validarFriccion()" class="w-full border rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold mb-1">Kinetic Coeff. ($\mu_k$):</label>
+                <input type="number" id="inpMuK" value="0.3" min="0" max="1" step="0.05" onchange="validarFriccion()" class="w-full border rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold mb-1">Applied Force (N):</label>
+                <input type="number" id="inpFuerza" value="60" min="0" step="1" class="w-full border rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-semibold mb-1">Angle ($\alpha$ in $^{\circ}$): <span class="text-xs font-normal text-gray-500">(-90 to 90)</span></label>
+                <input type="number" id="inpAngulo" value="30" min="-90" max="90" step="1" class="w-full border rounded p-1.5 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+        </div>
+
+        <div class="pt-4 border-t mt-2 flex flex-col gap-3">
+            <button id="btnPaso" onclick="avanzarPaso()" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors text-sm">
+                Start Simulation
+            </button>
+            <button id="btnReinicio" onclick="reiniciarSimulacion()" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded shadow transition-colors text-sm">
+                Reset
+            </button>
+        </div>
+
+        <!-- Bloque de Licencia y Contador -->
+        <div class="licencia-bloque">
+            <div class="badge-container">
+                <img src="https://visitor-badge.laobi.icu/badge?page_id=EAG1964.phychem.lab&left_text=Visitors&left_color=gray&right_color=blue" alt="Visitors">
+            </div>
+            Author: <strong>EAG1964</strong> | 2026<br>
+            <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/deed.en" target="_blank">License CC BY-NC-SA 4.0</a>
+        </div>
+    </div>
+
+    <!-- Panel Central: Simulación -->
+    <div class="flex-1 relative flex flex-col shadow-inner z-0">
+        <h2 class="absolute top-4 left-1/2 -translate-x-1/2 text-center text-2xl font-bold text-gray-700 bg-white/80 px-4 py-1 rounded shadow pointer-events-none w-max max-w-[90%]">Dynamics of a body on a horizontal surface</h2>
+        <canvas id="lienzo" class="w-full h-full"></canvas>
+    </div>
+
+    <!-- Panel Derecho: Análisis Dinámico -->
+    <div class="w-80 bg-white shadow-lg flex flex-col z-10 shrink-0">
+        <h2 class="text-xl font-bold p-4 bg-blue-700 text-white shadow-md text-center">Dynamic Analysis</h2>
+        <div id="panelAnalisis" class="p-4 flex-1 overflow-y-auto text-sm leading-relaxed space-y-4 bg-gray-50">
+            <p class="text-gray-500 italic text-center mt-4">Steps and the corresponding physical analysis will appear here as the simulation advances.</p>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales de Física y Estado
+        let pasosPlanificados = [];
+        let pasoActualIndex = -1;
+        let simulacionCompletada = false;
+        
+        let phys = {
+            m: 0, us: 0, uk: 0, F: 0, angulo: 0, g: 9.81,
+            P: 0, Fx: 0, Fy: 0, N: 0, fs_max: 0, fk: 0, ax: 0,
+            seMueve: false
+        };
+
+        // Variables del Canvas y Animación
+        const canvas = document.getElementById('lienzo');
+        const ctx = canvas.getContext('2d');
+        let animacionReq;
+        
+        // Estado visual del bloque
+        const bloque = {
+            ancho: 100,
+            alto: 60,
+            x: 200, // posición X inicial del centro
+            yBase: 0, // se calcula al redimensionar
+            v: 0 // velocidad
+        };
+
+        // Estado de visualización para ir dibujando elementos paso a paso
+        let mostrar = {
+            ejes: false,
+            peso: false,
+            fuerza: false,
+            componentes: false,
+            normal: false,
+            friccionEst: false,
+            friccionCin: false
+        };
+
+        // Ajustar tamaño del canvas
+        function redimensionarCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+            bloque.yBase = canvas.height / 2 + 100;
+            dibujarEscena();
+        }
+        window.addEventListener('resize', redimensionarCanvas);
+
+        // --- LÓGICA DE PASOS ---
+        const DEFINICION_PASOS = {
+            INTRO: { 
+                titulo: "Data Introduction",
+                btnSig: "Step 2: Reference System",
+                ejecutar: () => {
+                    leerDatos();
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">1. Data Introduction</div>
+                        <ul class="list-disc pl-5 mt-2">
+                            <li>Mass ($m$) = ${phys.m} kg</li>
+                            <li>Applied force ($|\\vec{F}|$) = ${phys.F} N</li>
+                            <li>Angle ($\\alpha$) = ${phys.angulo}$^{\\circ}$</li>
+                            <li>$\\mu_s$ = ${phys.us}, $\\mu_k$ = ${phys.uk}</li>
+                        </ul>
+                        <p class="text-xs text-gray-600 mt-3 italic border-l-2 border-blue-400 pl-2">
+                            Note: The static coefficient must be less than or equal to one <span class="whitespace-nowrap">($\\mu_s \\le 1$)</span> and the kinetic coefficient must be strictly less than the static coefficient <span class="whitespace-nowrap">($\\mu_k < \\mu_s$).</span>
+                        </p>
+                    `);
+                }
+            },
+            EJES: {
+                titulo: "Reference System",
+                btnSig: "Step 3: Weight Representation",
+                ejecutar: () => {
+                    mostrar.ejes = true;
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">2. Reference System</div>
+                        <p class="mt-2">A coordinate system centered on the center of mass of the block is established. The $x$ axis is parallel to the sliding surface and the $y$ axis is perpendicular.</p>
+                    `);
+                }
+            },
+            PESO: {
+                titulo: "Weight Representation",
+                btnSig: "Step 4: Applied Force",
+                ejecutar: () => {
+                    mostrar.peso = true;
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">3. Weight Representation</div>
+                        <p class="mt-2">The Earth exerts a downward gravitational force.</p>
+                        <div class="math-box">
+                            $$\\vec{W} = m \\cdot \\vec{g}$$
+                            $$|\\vec{W}| = ${phys.m} \\cdot ${phys.g} = ${phys.P.toFixed(2)}\\text{ N}$$
+                        </div>
+                    `);
+                }
+            },
+            FUERZA: {
+                titulo: "Applied Force and Components",
+                btnSig: "Step 5: Normal Calculation",
+                ejecutar: () => {
+                    mostrar.fuerza = true;
+                    mostrar.componentes = (phys.angulo !== 0);
+                    
+                    let html = `<div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">4. Applied Force</div>`;
+                    
+                    if (phys.angulo === 0) {
+                        html += `
+                            <p class="mt-2">The applied force is completely horizontal, therefore, it does not need to be decomposed along the axes.</p>
+                            <div class="math-box">
+                                $$\\vec{F}_x = \\vec{F}$$
+                                $$|\\vec{F}_x| = ${phys.F}\\text{ N}$$
+                                $$|\\vec{F}_y| = 0\\text{ N}$$
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <p class="mt-2">The force forms an angle of ${phys.angulo}^{\\circ} with the horizontal. It must be decomposed into its rectangular components $x$ and $y$.</p>
+                            <div class="math-box">
+                                $$|\\vec{F}_x| = |\\vec{F}| \\cdot \\cos(\\alpha)$$
+                                $$|\\vec{F}_y| = |\\vec{F}| \\cdot \\sin(\\alpha)$$
+                            </div>
+                            <p>Calculation of the magnitudes:</p>
+                            <div class="math-box">
+                                $$F_x = ${phys.F} \\cdot \\cos(${phys.angulo}^{\\circ}) = ${phys.Fx.toFixed(2)}\\text{ N}$$
+                                $$F_y = ${phys.F} \\cdot \\sin(${phys.angulo}^{\\circ}) = ${phys.Fy.toFixed(2)}\\text{ N}$$
+                            </div>
+                        `;
+                    }
+                    imprimirHTML(html);
+                }
+            },
+            NORMAL: {
+                titulo: "Calculation of the Normal Force",
+                btnSig: "Step 6: Max Static Friction",
+                ejecutar: () => {
+                    mostrar.normal = true;
+                    let html = `<div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">5. Normal Force</div>`;
+                    
+                    if (phys.angulo === 0) {
+                        html += `
+                            <p class="mt-2">Since the applied force is horizontal, equilibrium in the vertical axis requires that the sum of forces is zero:</p>
+                            <div class="math-box">
+                                $$\\vec{N} + \\vec{W} = \\vec{0} \\implies \\vec{N} = -\\vec{W}$$
+                                $$|\\vec{N}| = |\\vec{W}| = ${phys.P.toFixed(2)}\\text{ N}$$
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <p class="mt-2">Since the force forms an angle with the horizontal, the vertical component $\\vec{F}_y$ affects the Normal.</p>
+                            <div class="math-box">
+                                $$\\vec{N} + \\vec{F}_y + \\vec{W} = \\vec{0}$$
+                            </div>
+                            <p>Taking the upward direction as positive, we solve for the magnitude of the normal:</p>
+                            <div class="math-box">
+                                $$N = W - F_y =$$
+                                $$= ${phys.P.toFixed(2)} - (${phys.Fy.toFixed(2)}) = ${phys.N.toFixed(2)}\\text{ N}$$
+                            </div>
+                        `;
+                    }
+                    
+                    if (phys.N <= 0) {
+                        html += `<p class="text-red-600 font-bold mt-2">Attention! The vertical force exceeds or equals the weight. The body would lift off the surface. (For this simulation assume N=0).</p>`;
+                    }
+                    imprimirHTML(html);
+                }
+            },
+            FRICCION_EST: {
+                titulo: "Maximum Static Friction",
+                btnSig: "Step 7: Motion Analysis",
+                ejecutar: () => {
+                    mostrar.friccionEst = true;
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">6. Maximum Static Friction</div>
+                        <p class="mt-2">We calculate the maximum force that the surface can oppose before the body slides.</p>
+                        <div class="math-box">
+                            $$|\\vec{F}_{fs,max}| = \\mu_s \\cdot |\\vec{N}|$$
+                            $$F_{fs,max} = ${phys.us} \\cdot ${phys.N.toFixed(2)} = ${phys.fs_max.toFixed(2)}\\text{ N}$$
+                        </div>
+                    `);
+                }
+            },
+            ANALISIS: {
+                titulo: "Motion Analysis",
+                btnSig: "", // Dinámico
+                ejecutar: () => {
+                    let html = `<div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">7. Motion Analysis</div>`;
+                    
+                    if (phys.N <= 0) {
+                        html += `<p class="text-red-600 mt-2">The object loses contact with the surface. There is no friction. The body moves!</p>`;
+                        phys.seMueve = true;
+                    } else if (phys.Fx > phys.fs_max) {
+                        html += `
+                            <p class="mt-2">We compare the horizontal driving force ($F_x$) with the maximum static friction ($F_{fs,max}$).</p>
+                            <div class="math-box text-center">
+                                $$F_x > F_{fs,max}$$
+                                $$${phys.Fx.toFixed(2)}\\text{ N} > ${phys.fs_max.toFixed(2)}\\text{ N}$$
+                            </div>
+                            <p class="font-bold text-green-600 mt-2">Conclusion: The body WILL MOVE.</p>
+                        `;
+                        phys.seMueve = true;
+                    } else {
+                        html += `
+                            <p class="mt-2">We compare the horizontal driving force ($F_x$) with the maximum static friction ($F_{fs,max}$).</p>
+                            <div class="math-box text-center">
+                                $$F_x \\le F_{fs,max}$$
+                                $$${phys.Fx.toFixed(2)}\\text{ N} \\le ${phys.fs_max.toFixed(2)}\\text{ N}$$
+                            </div>
+                            <p class="font-bold text-red-600 mt-2">Conclusion: The body WILL NOT MOVE.</p>
+                            <p class="text-sm mt-2">The static friction force will exactly equal the applied force ($F_{fs} = ${phys.Fx.toFixed(2)}\\text{ N}$) maintaining equilibrium.</p>
+                        `;
+                        phys.seMueve = false;
+                    }
+                    imprimirHTML(html);
+                    
+                    // Ajustar pasos siguientes según si se mueve
+                    const btn = document.getElementById("btnPaso");
+                    if (phys.seMueve) {
+                        pasosPlanificados.push(DEFINICION_PASOS.FRICCION_CIN);
+                        pasosPlanificados.push(DEFINICION_PASOS.NEWTON);
+                        pasosPlanificados.push(DEFINICION_PASOS.ANIMAR);
+                        DEFINICION_PASOS.ANALISIS.btnSig = "Step 8: Kinetic friction calculation";
+                    } else {
+                        simulacionCompletada = true;
+                        DEFINICION_PASOS.ANALISIS.btnSig = "End: No Motion";
+                        btn.disabled = true;
+                        btn.classList.replace("bg-green-600", "bg-gray-400");
+                        btn.classList.replace("hover:bg-green-700", "hover:bg-gray-400");
+                    }
+                }
+            },
+            FRICCION_CIN: {
+                titulo: "Calculation of the kinetic friction force",
+                btnSig: "Step 9: Newton's Second Law",
+                ejecutar: () => {
+                    mostrar.friccionEst = false;
+                    mostrar.friccionCin = true;
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">8. Calculation of the kinetic friction force</div>
+                        <p class="mt-2">Since there is motion, the friction becomes dynamic or kinetic.</p>
+                        <div class="math-box">
+                            $$\\vec{F}_{fk} = -\\mu_k \\cdot |\\vec{N}| \\; \\hat{i}$$
+                            $$F_{fk} = \\mu_k \\cdot ${phys.N.toFixed(2)} = ${phys.fk.toFixed(2)}\\text{ N}$$
+                        </div>
+                    `);
+                }
+            },
+            NEWTON: {
+                titulo: "Newton's Second Law",
+                btnSig: "Step 10: Start Motion",
+                ejecutar: () => {
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">9. Newton's Second Law</div>
+                        <p class="mt-2">We apply the fundamental equation of dynamics on the horizontal axis:</p>
+                        <div class="math-box">
+                            $$\\sum \\vec{F}_x = m \\cdot \\vec{a}$$
+                            $$F_x - F_{fk} = m \\cdot a_x$$
+                            $$a_x = \\frac{F_x - F_{fk}}{m}$$
+                            $$a_x = \\frac{${phys.Fx.toFixed(2)} - ${phys.fk.toFixed(2)}}{${phys.m}} = ${phys.ax.toFixed(2)}\\text{ m/s}^2$$
+                        </div>
+                    `);
+                }
+            },
+            ANIMAR: {
+                titulo: "Start Motion",
+                btnSig: "End",
+                ejecutar: () => {
+                    imprimirHTML(`
+                        <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">10. Simulation</div>
+                        <p class="text-green-600 font-bold mt-2">Starting motion with constant acceleration...</p>
+                    `);
+                    
+                    const btn = document.getElementById("btnPaso");
+                    btn.innerText = "Simulation in Progress";
+                    btn.disabled = true;
+                    btn.classList.replace("bg-green-600", "bg-gray-400");
+                    btn.classList.replace("hover:bg-green-700", "hover:bg-gray-400");
+                    
+                    simulacionCompletada = true;
+                    lastTime = performance.now();
+                    animacionReq = requestAnimationFrame(animarBloque);
+                }
+            }
+        };
+
+        // Función para asegurar en tiempo real que el cinético sea menor al estático
+        function validarFriccion() {
+            let us_val = parseFloat(document.getElementById('inpMuS').value) || 0;
+            let uk_val = parseFloat(document.getElementById('inpMuK').value) || 0;
+            
+            // Restricción de límites entre 0 y 1
+            if (us_val > 1) us_val = 1;
+            if (us_val < 0) us_val = 0;
+            if (uk_val > 1) uk_val = 1;
+            if (uk_val < 0) uk_val = 0;
+
+            // Regla física: Cinético estrictamente menor que Estático
+            if (us_val === 0) {
+                uk_val = 0;
+            } else if (uk_val >= us_val) {
+                uk_val = us_val - 0.05;
+                if (uk_val < 0) uk_val = 0;
+            }
+
+            // Actualizamos las casillas
+            document.getElementById('inpMuS').value = Number(us_val.toFixed(2));
+            document.getElementById('inpMuK').value = Number(uk_val.toFixed(2));
+        }
+
+        function leerDatos() {
+            // Aseguramos que la regla de fricciones se aplique justo al iniciar
+            validarFriccion();
+
+            phys.m = parseFloat(document.getElementById('inpMasa').value) || 1;
+            phys.us = parseFloat(document.getElementById('inpMuS').value) || 0;
+            phys.uk = parseFloat(document.getElementById('inpMuK').value) || 0;
+            phys.F = parseFloat(document.getElementById('inpFuerza').value) || 0;
+            phys.angulo = parseFloat(document.getElementById('inpAngulo').value) || 0;
+            
+            // Cálculos físicos pre-evaluados
+            phys.P = phys.m * phys.g;
+            let anguloRad = phys.angulo * Math.PI / 180;
+            
+            phys.Fx = phys.F * Math.cos(anguloRad);
+            // Limpiar errores de redondeo trigonométrico (ej. cos(90) != 0 en ordenadores)
+            if (Math.abs(phys.Fx) < 1e-10) phys.Fx = 0;
+
+            // Convención: si angulo > 0, tira hacia arriba. Fy positivo.
+            phys.Fy = phys.F * Math.sin(anguloRad); 
+            if (Math.abs(phys.Fy) < 1e-10) phys.Fy = 0;
+            
+            phys.N = phys.P - phys.Fy;
+            if (phys.N < 0) phys.N = 0; // Se levanta
+
+            phys.fs_max = phys.us * phys.N;
+            phys.fk = phys.uk * phys.N;
+            
+            phys.ax = (phys.Fx - phys.fk) / phys.m;
+            if (phys.N === 0) phys.ax = phys.Fx / phys.m; // Si se levanta, no hay rozamiento
+        }
+
+        function imprimirHTML(htmlContent) {
+            const panel = document.getElementById('panelAnalisis');
+            if (pasoActualIndex === 0) panel.innerHTML = ""; // Limpiar mensaje inicial
+            
+            const div = document.createElement('div');
+            // Estilo de "ventana" para cada paso
+            div.className = "bg-white border border-blue-200 rounded-lg shadow-md p-4 mb-4 anim-fade-in";
+            div.innerHTML = htmlContent;
+            panel.appendChild(div);
+            
+            // Auto scroll abajo
+            panel.scrollTop = panel.scrollHeight;
+            
+            // Renderizar matemáticas
+            if (window.MathJax) {
+                MathJax.typesetPromise([div]).catch((err) => console.log(err.message));
+            }
+        }
+
+        function avanzarPaso() {
+            if (simulacionCompletada) return;
+
+            if (pasoActualIndex === -1) {
+                leerDatos(); // Aseguramos leer los datos para planificar dinámicamente
+
+                // Inicializar secuencia base
+                pasosPlanificados = [
+                    DEFINICION_PASOS.INTRO,
+                    DEFINICION_PASOS.EJES,
+                    DEFINICION_PASOS.PESO,
+                    DEFINICION_PASOS.FUERZA,
+                    DEFINICION_PASOS.NORMAL
+                ];
+
+                // Si no hay fuerza horizontal, acortamos la simulación
+                if (phys.Fx === 0) {
+                    DEFINICION_PASOS.NORMAL.btnSig = "Step 6: Final Analysis";
+                    pasosPlanificados.push({
+                        titulo: "Final Analysis",
+                        btnSig: "End",
+                        ejecutar: () => {
+                            let razon = phys.F === 0 ? "the applied force is zero" : `the angle is ${phys.angulo}$^{\\circ}$`;
+                            imprimirHTML(`
+                                <div class="font-bold text-blue-800 text-base mb-2 border-b pb-1">6. Final Analysis</div>
+                                <p class="text-red-600 font-bold mt-2">Since ${razon}, there is no horizontal component of the force ($F_x = 0$).</p>
+                                <p class="mt-2">Therefore, the body has no tendency to move horizontally and friction does not intervene. The simulation ends here.</p>
+                            `);
+                            simulacionCompletada = true;
+                            const btn = document.getElementById("btnPaso");
+                            btn.innerText = "End: No Motion";
+                            btn.disabled = true;
+                            btn.classList.replace("bg-green-600", "bg-gray-400");
+                            btn.classList.replace("hover:bg-green-700", "hover:bg-gray-400");
+                        }
+                    });
+                } else {
+                    DEFINICION_PASOS.NORMAL.btnSig = "Step 6: Max Static Friction";
+                    pasosPlanificados.push(DEFINICION_PASOS.FRICCION_EST);
+                    pasosPlanificados.push(DEFINICION_PASOS.ANALISIS);
+                }
+
+                document.getElementById('panelAnalisis').innerHTML = ""; // Limpiar placeholder
+            }
+
+            pasoActualIndex++;
+            const pasoActual = pasosPlanificados[pasoActualIndex];
+            
+            if (pasoActual) {
+                pasoActual.ejecutar();
+                dibujarEscena();
+                
+                // Actualizar botón para el próximo paso (solo si no se ha marcado como completada)
+                if (!simulacionCompletada) {
+                    const btn = document.getElementById("btnPaso");
+                    if (pasoActualIndex < pasosPlanificados.length - 1) {
+                        btn.innerText = pasosPlanificados[pasoActualIndex].btnSig;
+                    }
+                }
+            }
+        }
+
+        function reiniciarSimulacion() {
+            cancelAnimationFrame(animacionReq);
+            pasoActualIndex = -1;
+            simulacionCompletada = false;
+            pasosPlanificados = [];
+            
+            // Reset variables físicas
+            bloque.x = 200;
+            bloque.v = 0;
+            
+            mostrar = {
+                ejes: false, peso: false, fuerza: false, 
+                componentes: false, normal: false, friccionEst: false, friccionCin: false
+            };
+
+            const btn = document.getElementById("btnPaso");
+            btn.disabled = false;
+            btn.className = "bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded shadow transition-colors text-sm";
+            btn.innerText = "Step 1: Input Data";
+
+            document.getElementById('panelAnalisis').innerHTML = `<p class="text-gray-500 italic text-center mt-4">Steps and the corresponding physical analysis will appear here as the simulation advances.</p>`;
+            
+            redimensionarCanvas(); // Redibuja limpio
+        }
+
+        // --- MOTOR DE DIBUJO CANVAS ---
+        
+        // Dibuja la etiqueta con flecha de vector y subíndice
+        function dibujarEtiquetaVector(textoBase, subindice, x, y, color) {
+            ctx.fillStyle = color;
+            ctx.font = "italic bold 18px 'Times New Roman', serif";
+            let wBase = ctx.measureText(textoBase).width;
+            
+            ctx.fillText(textoBase, x, y);
+            
+            // Ajuste para contrarrestar la inclinación de la letra itálica
+            let offsetInclinacion = 2;
+            let anchoFlecha = wBase + 2;
+            let inicioX = x + offsetInclinacion;
+            
+            // Flecha del vector arriba de la letra
+            let yArrow = y - 18; 
+            ctx.beginPath();
+            ctx.moveTo(inicioX, yArrow);
+            ctx.lineTo(inicioX + anchoFlecha, yArrow);
+            ctx.lineTo(inicioX + anchoFlecha - 4, yArrow - 3);
+            ctx.moveTo(inicioX + anchoFlecha, yArrow);
+            ctx.lineTo(inicioX + anchoFlecha - 4, yArrow + 3);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // Subíndice
+            if (subindice) {
+                ctx.font = "italic 14px 'Times New Roman', serif";
+                ctx.fillText(subindice, x + wBase + 2, y + 4);
+            }
+        }
+
+        // Dibuja una flecha (vector)
+        function dibujarVector(xBase, yBase, modX, modY, color, textoBase, subindice="", ox=10, oy=-10) {
+            if (modX === 0 && modY === 0) return;
+            
+            const headlen = 12; // Longitud de la cabeza de flecha
+            const xFin = xBase + modX;
+            const yFin = yBase - modY; // En Canvas, Y crece hacia abajo, por eso restamos
+            const angle = Math.atan2(-modY, modX);
+            
+            ctx.beginPath();
+            ctx.moveTo(xBase, yBase);
+            ctx.lineTo(xFin, yFin);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            if (color.includes("dashed")) {
+                ctx.setLineDash([5, 5]);
+                ctx.strokeStyle = color.replace("dashed-", "");
+            } else {
+                ctx.setLineDash([]);
+            }
+            ctx.stroke();
+
+            // Cabeza
+            ctx.beginPath();
+            ctx.setLineDash([]);
+            ctx.moveTo(xFin, yFin);
+            ctx.lineTo(xFin - headlen * Math.cos(angle - Math.PI / 6), yFin - headlen * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(xFin - headlen * Math.cos(angle + Math.PI / 6), yFin - headlen * Math.sin(angle + Math.PI / 6));
+            ctx.lineTo(xFin, yFin);
+            ctx.fillStyle = ctx.strokeStyle;
+            ctx.fill();
+
+            // Etiqueta
+            if (textoBase) {
+                dibujarEtiquetaVector(textoBase, subindice, xFin + ox, yFin + oy, ctx.strokeStyle);
+            }
+        }
+
+        // Escala visual para que los vectores entren en la pantalla (max ~150px)
+        function escalaFuerza(fuerzaValor) {
+            // Buscamos un factor de escala basado en el peso o la fuerza máxima
+            let maxF = Math.max(phys.P, phys.F, 1);
+            let factor = 150 / maxF; 
+            return fuerzaValor * factor;
+        }
+
+        function dibujarEscena() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Dibujar Superficie
+            ctx.fillStyle = "#cbd5e1";
+            ctx.fillRect(0, bloque.yBase, canvas.width, canvas.height - bloque.yBase);
+            ctx.beginPath();
+            ctx.moveTo(0, bloque.yBase);
+            ctx.lineTo(canvas.width, bloque.yBase);
+            ctx.strokeStyle = "#475569";
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // 2. Dibujar Bloque
+            ctx.fillStyle = "#c4b5fd"; // Violeta más claro (violet-300)
+            ctx.strokeStyle = "#7c3aed"; // Borde violeta (violet-600)
+            ctx.lineWidth = 2;
+            const bLeft = bloque.x - bloque.ancho / 2;
+            const bTop = bloque.yBase - bloque.alto;
+            ctx.fillRect(bLeft, bTop, bloque.ancho, bloque.alto);
+            ctx.strokeRect(bLeft, bTop, bloque.ancho, bloque.alto);
+            
+            // Centro de masas
+            const cx = bloque.x;
+            const cy = bloque.yBase - bloque.alto / 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, 2*Math.PI);
+            ctx.fillStyle = "#000";
+            ctx.fill();
+
+            // 3. Dibujar Ejes
+            if (mostrar.ejes) {
+                ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+                ctx.lineWidth = 1;
+                ctx.setLineDash([5, 5]);
+                
+                // Eje X
+                ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy); ctx.stroke();
+                // Eje Y (Acortado por arriba para no tapar el título)
+                ctx.beginPath(); ctx.moveTo(cx, 80); ctx.lineTo(cx, canvas.height); ctx.stroke();
+                
+                ctx.setLineDash([]);
+                ctx.fillStyle = "rgba(0,0,0,0.5)";
+                ctx.font = "italic 16px Arial";
+                ctx.fillText("x", canvas.width - 20, cy - 10);
+                ctx.fillText("y", cx + 10, 70);
+                
+                // Pequeñas flechas de los ejes positivos
+                dibujarVector(canvas.width - 30, cy, 25, 0, "rgba(0,0,0,0.3)", "", "", 0, 0);
+                dibujarVector(cx, 80 + 25, 0, 25, "rgba(0,0,0,0.3)", "", "", 0, 0); // Hacia arriba
+            }
+
+            // Vectores Físicos (Se dibujan según el estado)
+            if (pasoActualIndex === -1) return; // Si no ha empezado, solo mostramos caja
+            
+            // Peso
+            if (mostrar.peso) {
+                let pL = escalaFuerza(phys.P);
+                dibujarVector(cx, cy, 0, -pL, "#2563eb", "W", "", 10, 25);
+            }
+
+            // Fuerza Aplicada y Componentes
+            if (mostrar.fuerza) {
+                let fL = escalaFuerza(phys.F);
+                let angRad = phys.angulo * Math.PI / 180;
+                dibujarVector(cx, cy, fL * Math.cos(angRad), fL * Math.sin(angRad), "#dc2626", "F", "");
+                
+                if (mostrar.componentes) {
+                    let fxL = escalaFuerza(phys.Fx);
+                    let fyL = escalaFuerza(phys.Fy);
+                    
+                    // Líneas continuas de la descomposición (rectángulo)
+                    ctx.beginPath();
+                    ctx.moveTo(cx + fxL, cy);
+                    ctx.lineTo(cx + fxL, cy - fyL);
+                    ctx.lineTo(cx, cy - fyL);
+                    ctx.strokeStyle = "rgba(239, 68, 68, 0.4)"; // Rojo suave para distinguirlas
+                    ctx.lineWidth = 1.5;
+                    ctx.setLineDash([]); // Líneas continuas
+                    ctx.stroke();
+
+                    // Fuerzas Fx y Fy en línea continua
+                    let oy_Fy = (fyL > 0) ? -15 : 20; 
+                    dibujarVector(cx, cy, fxL, 0, "#ef4444", "F", "x", 10, -10); // Más centrada la etiqueta
+                    dibujarVector(cx, cy, 0, fyL, "#ef4444", "F", "y", -30, oy_Fy);
+                    
+                    // Arco de ángulo corregido (Canvas Y es invertido)
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 35, 0, -angRad, phys.angulo > 0);
+                    ctx.strokeStyle = "#dc2626";
+                    ctx.setLineDash([]);
+                    ctx.stroke();
+                    
+                    // Etiqueta alfa centrada en el arco
+                    ctx.fillStyle = "#dc2626";
+                    ctx.font = "italic 16px Arial";
+                    let textAng = -angRad / 2;
+                    ctx.fillText("α", cx + 45 * Math.cos(textAng) - 5, cy + 45 * Math.sin(textAng) + 5);
+                }
+            }
+
+            // Normal
+            if (mostrar.normal && phys.N > 0) {
+                let nL = escalaFuerza(phys.N);
+                dibujarVector(cx, cy, 0, nL, "#16a34a", "N", "");
+            }
+
+            // Fricción
+            if (mostrar.friccionEst && !mostrar.friccionCin) {
+                // Mostramos fricción estática
+                // Si Fx es pequeña, fs iguala a Fx. Si supera, mostramos max pero "rota"
+                let fuerzaAVisualizar = (phys.Fx > phys.fs_max) ? phys.fs_max : phys.Fx;
+                if (fuerzaAVisualizar > 0) {
+                    let fsL = escalaFuerza(fuerzaAVisualizar);
+                    dibujarVector(cx, cy, -fsL, 0, "#ea580c", "F", "fs", -35, -15);
+                }
+            }
+
+            if (mostrar.friccionCin) {
+                let fkL = escalaFuerza(phys.fk);
+                dibujarVector(cx, cy, -fkL, 0, "#ea580c", "F", "fk", -35, -15);
+            }
+        }
+
+        // Bucle de animación (solo para el último paso)
+        let lastTime = performance.now();
+        function animarBloque(currentTime) {
+            if (!simulacionCompletada) return;
+            
+            const dt = (currentTime - lastTime) / 1000; // Segundos
+            lastTime = currentTime;
+
+            // Integración básica (escala física a visual exagerada para notar movimiento)
+            // ax está en m/s^2. Vamos a asumir 1m = 50px de simulación
+            const factorPxM = 50; 
+            
+            bloque.v += phys.ax * dt;
+            bloque.x += (bloque.v * factorPxM) * dt;
+
+            dibujarEscena();
+
+            // Si se sale de pantalla por la derecha, lo paramos o repetimos
+            if (bloque.x - bloque.ancho/2 < canvas.width) {
+                animacionReq = requestAnimationFrame(animarBloque);
+            } else {
+                imprimirHTML(`<p class="text-gray-500 italic text-center">The block left the visual area.</p>`);
+            }
+        }
+
+        // Init
+        document.addEventListener("DOMContentLoaded", () => {
+            redimensionarCanvas();
+            document.getElementById("btnPaso").innerText = "Step 1: Input Data";
+        });
+    </script>
+</body>
+</html>
